@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import toast from 'react-hot-toast';
 import api from '../api/axios';
 import StatCard from '../components/StatCard';
 
@@ -33,10 +34,25 @@ export default function Dashboard() {
       api.get('/dashboard/revenue-by-location'),api.get('/dashboard/ticket-categories'),
       api.get('/dashboard/recent-visits'),api.get('/dashboard/payment-modes'),
     ]).then(([o,t,r,c,rv,pm])=>{
-      setOverview(o.data.data);setTrends(t.data.data);setRevenue(r.data.data);
-      setCats(c.data.data);setRecent(rv.data.data);setPayModes(pm.data.data);
-    }).finally(()=>setLoading(false));
+      setOverview(o.data?.data ?? o.data);setTrends(t.data?.data ?? t.data);setRevenue(r.data?.data ?? r.data);
+      setCats(c.data?.data ?? c.data);setRecent(rv.data?.data ?? rv.data);setPayModes(pm.data?.data ?? pm.data);
+    }).catch(()=>toast.error('Failed to load dashboard'))
+    .finally(()=>setLoading(false));
   },[]);
+
+  // Real-time occupancy polling (every 30s)
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const d = await api.get('/dashboard/live-count');
+        const live = d.data?.data;
+        setOverview((prev) => (prev ? { ...prev, active_visits: live?.current_inside ?? prev.active_visits } : prev));
+      } catch (_e) {}
+    };
+    tick();
+    const t = setInterval(tick, 30000);
+    return () => clearInterval(t);
+  }, []);
 
   const statusBadge=(s)=>{
     const m={in_progress:'badge-green',completed:'badge-indigo',approved:'badge-yellow',cancelled:'badge-red'};

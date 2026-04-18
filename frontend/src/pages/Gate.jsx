@@ -1,33 +1,72 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
+import Modal from '../components/Modal';
 
 export default function Gate() {
   const [qr,setQr]=useState('');
   const [staffId,setStaffId]=useState('');
   const [gate,setGate]=useState('Main Gate');
   const [staff,setStaff]=useState([]);
+  const [locations,setLocations]=useState([]);
+  const [locationId,setLocationId]=useState('');
   const [active,setActive]=useState([]);
   const [scanning,setScanning]=useState(false);
   const [lastEntry,setLastEntry]=useState(null);
+  const [previewOpen,setPreviewOpen]=useState(false);
+  const [ticketPreview,setTicketPreview]=useState(null);
 
-  const loadActive=useCallback(()=>{ api.get('/visits/active').then(r=>setActive(r.data.data||[])).catch(()=>{}); },[]);
+  const loadActive=useCallback(()=>{ api.get('/visits/active').then(r=>setActive((r.data?.data ?? r.data)||[])).catch(()=>{}); },[]);
   useEffect(()=>{
-    api.get('/staff?active=true').then(r=>setStaff(r.data.data||[])).catch(()=>{});
+    api.get('/staff?active=true').then(r=>setStaff((r.data?.data ?? r.data)||[])).catch(()=>{});
+    api.get('/locations?active=true').then(r=>{ setLocations((r.data?.data ?? r.data)||[]); if((r.data?.data ?? r.data)?.[0]?.location_id) setLocationId(String((r.data?.data ?? r.data)[0].location_id)); }).catch(()=>{});
     loadActive();
     const t=setInterval(loadActive,30000);
     return()=>clearInterval(t);
   },[loadActive]);
 
-  const checkIn=async(e)=>{
+  const todayIso = useMemo(()=>new Date().toISOString().slice(0,10),[]);
+
+  const validateTicket = (t) => {
+    if (!t) return 'Ticket not found';
+    if (t.checked) return 'Ticket already used';
+    if (t.ticket_status !== 'active') return `Ticket is ${t.ticket_status}`;
+    const vf = String(t.valid_from).slice(0,10);
+    const vt = String(t.valid_till).slice(0,10);
+    if (todayIso < vf || todayIso > vt) return 'Ticket expired or not valid today';
+    if (locationId && String(t.location_id) !== String(locationId)) return 'Wrong location for this gate';
+    return '';
+  };
+
+  const previewTicket=async(e)=>{
     e.preventDefault();
     if(!qr.trim()) return toast.error('Enter a ticket QR code');
+    if(!staffId) return toast.error('Select staff officer');
     setScanning(true);
     try{
-      const r=await api.post('/tickets/checkin',{ticket_qr:qr,staff_id:staffId,entry_gate:gate});
-      setLastEntry(r.data.data); toast.success('✅ Check-in successful!'); setQr(''); loadActive();
+      const r=await api.get(`/tickets/${encodeURIComponent(qr.trim())}`);
+      const t=r.data?.data ?? r.data;
+      setTicketPreview(t);
+      setPreviewOpen(true);
     }catch(err){
-      toast.error(err.response?.data?.message||'Check-in failed — invalid or expired ticket');
+      toast.error(err.response?.data?.message||'Ticket not found');
+    } finally{setScanning(false);}
+  };
+
+  const confirmCheckIn=async()=>{
+    const msg=validateTicket(ticketPreview);
+    if(msg) return toast.error(msg);
+    setScanning(true);
+    try{
+      const r=await api.post('/tickets/checkin',{ticket_qr:qr.trim(),staff_id:staffId,entry_gate:gate});
+      setLastEntry(r.data?.data ?? r.data);
+      toast.success('✅ Check-in successful!');
+      setQr('');
+      setPreviewOpen(false);
+      setTicketPreview(null);
+      loadActive();
+    }catch(err){
+      toast.error(err.response?.data?.message||'Check-in failed');
     } finally{setScanning(false);}
   };
 
@@ -49,22 +88,28 @@ export default function Gate() {
             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xl" style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)'}}>🚪</div>
             <div><p className="font-bold text-slate-800 text-sm">Gate Terminal</p><p className="text-xs text-slate-400">Scan ticket to check in</p></div>
           </div>
-          <form onSubmit={checkIn} className="space-y-3">
+          <form onSubmit={previewTicket} className="space-y-3">
             <div><label className="label">Officer</label>
               <select className="input" value={staffId} onChange={e=>setStaffId(e.target.value)}>
                 <option value="">Select staff…</option>
                 {staff.map(s=><option key={s.staff_id} value={s.staff_id}>{s.staff_name} ({s.staff_type})</option>)}
               </select>
             </div>
+            <div><label className="label">Location (Gate)</label>
+              <select className="input" value={locationId} onChange={e=>setLocationId(e.target.value)}>
+                {locations.map(l=><option key={l.location_id} value={l.location_id}>{l.location_name}</option>)}
+              </select>
+              <p className="text-xs text-slate-400 mt-1.5">Used to detect wrong-location scans</p>
+            </div>
             <div><label className="label">Gate</label><input className="input" value={gate} onChange={e=>setGate(e.target.value)}/></div>
             <div>
               <label className="label">Ticket QR / ID</label>
               <input className="input font-mono text-sm" placeholder="Scan or enter ticket QR…" value={qr} autoFocus onChange={e=>setQr(e.target.value)}
-                onKeyDown={e=>{ if(e.key==='Enter'){e.preventDefault();checkIn(e);}}}/>
-              <p className="text-xs text-slate-400 mt-1.5">Press Enter or click Check-In</p>
+                onKeyDown={e=>{ if(e.key==='Enter'){e.preventDefault();previewTicket(e);}}}/>
+              <p className="text-xs text-slate-400 mt-1.5">Press Enter or click Preview</p>
             </div>
-            <button type="submit" disabled={scanning||!qr.trim()} className="btn-primary w-full py-3 text-sm">
-              {scanning?'⏳ Processing…':'✅ Check In'}
+            <button type="submit" disabled={scanning||!qr.trim()||!staffId} className="btn-primary w-full py-3 text-sm">
+              {scanning?'⏳ Loading…':'🔎 Preview Ticket'}
             </button>
           </form>
         </div>
@@ -83,6 +128,53 @@ export default function Gate() {
           </div>
         )}
       </div>
+
+      <Modal open={previewOpen} onClose={()=>{setPreviewOpen(false);}} title="Confirm Entry" size="lg">
+        {ticketPreview ? (
+          <div className="space-y-4">
+            {validateTicket(ticketPreview) ? (
+              <div className="rounded-xl p-3 border border-rose-200 bg-rose-50 text-rose-700 text-sm font-semibold">
+                {validateTicket(ticketPreview)}
+              </div>
+            ) : (
+              <div className="rounded-xl p-3 border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold">
+                Ticket valid. Confirm entry below.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl border border-slate-100 p-3">
+                <p className="text-xs text-slate-400">Visitor</p>
+                <p className="font-bold text-slate-900">{ticketPreview.visitor_name}</p>
+                <p className="text-xs text-slate-500">{ticketPreview.phone_no}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 p-3">
+                <p className="text-xs text-slate-400">Location</p>
+                <p className="font-bold text-slate-900">{ticketPreview.location_name}</p>
+                <p className="text-xs text-slate-500 capitalize">{ticketPreview.ticket_category?.replace('_',' ')}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 p-3">
+                <p className="text-xs text-slate-400">Validity</p>
+                <p className="font-bold text-slate-900">{String(ticketPreview.valid_from).slice(0,10)} – {String(ticketPreview.valid_till).slice(0,10)}</p>
+                <p className="text-xs text-slate-500">Status: {ticketPreview.ticket_status}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 p-3">
+                <p className="text-xs text-slate-400">QR</p>
+                <p className="font-mono text-xs text-slate-700 break-all">{ticketPreview.ticket_qr}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+              <button type="button" onClick={()=>setPreviewOpen(false)} className="btn-secondary">Cancel</button>
+              <button type="button" onClick={confirmCheckIn} disabled={!!validateTicket(ticketPreview)||scanning} className="btn-primary">
+                {scanning?'⏳ Confirming…':`Confirm Entry for ${ticketPreview.visitor_name}`}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-slate-500">No ticket loaded.</div>
+        )}
+      </Modal>
 
       {/* Active visitors */}
       <div className="lg:col-span-2">

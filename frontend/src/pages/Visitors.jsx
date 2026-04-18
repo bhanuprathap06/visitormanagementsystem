@@ -17,13 +17,13 @@ export default function Visitors() {
   const [search,setSearch]=useState('');
 
   const load=()=>{ setLoading(true); api.get('/visitors'+(search?`?search=${encodeURIComponent(search)}`:''))
-    .then(r=>setData(r.data.data||[])).catch(()=>toast.error('Failed to load visitors')).finally(()=>setLoading(false)); };
+    .then(r=>setData((r.data?.data ?? r.data)||[])).catch(()=>toast.error('Failed to load visitors')).finally(()=>setLoading(false)); };
   useEffect(load,[search]);
 
   const open=(row=null)=>{ setEditing(row); setForm(row?{...row}:EMPTY); setModal(true); };
   const close=()=>{ setModal(false); setEditing(null); setForm(EMPTY); };
   const openDetail=async(id)=>{
-    try{ const r=await api.get(`/visitors/${id}`); setDetail(r.data.data); }
+    try{ const r=await api.get(`/visitors/${id}`); setDetail(r.data?.data ?? r.data); }
     catch(e){ toast.error(e.response?.data?.message||'Could not load visitor details'); }
   };
   const save=async(e)=>{ e.preventDefault(); try{ if(editing) await api.put(`/visitors/${editing.visitor_id}`,form); else await api.post('/visitors',form); toast.success(editing?'Updated!':'Registered!'); close(); load(); }catch(e){ toast.error(e.response?.data?.message||'Save failed'); } };

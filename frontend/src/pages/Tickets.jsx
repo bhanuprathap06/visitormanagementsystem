@@ -24,15 +24,19 @@ export default function Tickets() {
     if(filter.status) q.set('status',filter.status);
     if(filter.location_id) q.set('location_id',filter.location_id);
     Promise.all([api.get('/tickets?'+q),api.get('/visitors'),api.get('/locations?active=true')])
-      .then(([t,v,l])=>{ setData(t.data.data||[]); setVisitors(v.data.data||[]); setLocations(l.data.data||[]); })
+      .then(([t,v,l])=>{ setData((t.data?.data ?? t.data)||[]); setVisitors((v.data?.data ?? v.data)||[]); setLocations((l.data?.data ?? l.data)||[]); })
       .catch(()=>toast.error('Failed to load tickets'))
       .finally(()=>setLoading(false));
   };
-  useEffect(load,[filter]);
+  useEffect(()=>{
+    load();
+    const t=setInterval(load,30000);
+    return()=>clearInterval(t);
+  },[filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open=()=>{ setForm(EMPTY); setModal(true); };
   const close=()=>{ setModal(false); setForm(EMPTY); };
-  const save=async(e)=>{ e.preventDefault(); try{ await api.post('/tickets',form); toast.success('🎫 Ticket issued!'); close(); load(); }catch(e){ toast.error(e.response?.data?.message||'Failed to issue ticket'); } };
+  const save=async(e)=>{ e.preventDefault(); if(final_price<0) return toast.error('Discount cannot exceed base price'); try{ await api.post('/tickets',form); toast.success('🎫 Ticket issued!'); close(); load(); }catch(e){ toast.error(e.response?.data?.message||'Failed to issue ticket'); } };
   const cancel=async(id)=>{ if(!confirm('Cancel this ticket?')) return; try{ await api.patch(`/tickets/${id}/cancel`); toast.success('Cancelled'); load(); }catch(e){ toast.error(e.response?.data?.message||'Failed to cancel ticket'); } };
 
   const statusBadge=(s)=>{

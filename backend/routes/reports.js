@@ -159,4 +159,98 @@ router.get('/location-summary', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── Hourly visitor heatmap (entries by hour) ────────────────────────────────
+// GET /api/reports/hourly-heatmap?date=YYYY-MM-DD&location_id=1
+router.get('/hourly-heatmap', async (req, res, next) => {
+  try {
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const location_id = req.query.location_id ? Number(req.query.location_id) : null;
+
+    const where = ['DATE(vi.entry_time)=?'];
+    const p = [date];
+    if (location_id) {
+      where.push('vi.location_id=?');
+      p.push(location_id);
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT HOUR(vi.entry_time) AS hour, COUNT(*) AS count
+      FROM VISIT vi
+      WHERE ${where.join(' AND ')}
+      GROUP BY HOUR(vi.entry_time)
+      ORDER BY hour ASC
+      `,
+      p
+    );
+
+    const byHour = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0 }));
+    for (const r of rows) {
+      const h = Number(r.hour);
+      if (h >= 0 && h <= 23) byHour[h].count = Number(r.count || 0);
+    }
+
+    res.json({ success: true, data: { date, location_id: location_id || null, by_hour: byHour } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Revenue breakdown by ticket category (for stacked charts) ───────────────
+// GET /api/reports/revenue-by-category?from=YYYY-MM-DD&to=YYYY-MM-DD
+router.get('/revenue-by-category', async (req, res, next) => {
+  try {
+    const { from = '2020-01-01', to = '2099-12-31' } = req.query;
+    const [rows] = await db.query(
+      `
+      SELECT DATE(issue_date) AS date,
+             ticket_category,
+             COUNT(*) AS tickets,
+             COALESCE(SUM(final_price),0) AS revenue
+      FROM TICKET
+      WHERE DATE(issue_date) BETWEEN ? AND ?
+        AND ticket_status != 'cancelled'
+      GROUP BY DATE(issue_date), ticket_category
+      ORDER BY date ASC
+      `,
+      [from, to]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Visitor demographics (age groups) ───────────────────────────────────────
+// GET /api/reports/demographics?from=YYYY-MM-DD&to=YYYY-MM-DD
+router.get('/demographics', async (req, res, next) => {
+  try {
+    const { from = '2020-01-01', to = '2099-12-31' } = req.query;
+    const [rows] = await db.query(
+      `
+      SELECT
+        CASE
+          WHEN v.date_of_birth IS NULL THEN 'unknown'
+          WHEN TIMESTAMPDIFF(YEAR, v.date_of_birth, CURDATE()) <= 12 THEN '0-12'
+          WHEN TIMESTAMPDIFF(YEAR, v.date_of_birth, CURDATE()) BETWEEN 13 AND 17 THEN '13-17'
+          WHEN TIMESTAMPDIFF(YEAR, v.date_of_birth, CURDATE()) BETWEEN 18 AND 25 THEN '18-25'
+          WHEN TIMESTAMPDIFF(YEAR, v.date_of_birth, CURDATE()) BETWEEN 26 AND 40 THEN '26-40'
+          WHEN TIMESTAMPDIFF(YEAR, v.date_of_birth, CURDATE()) BETWEEN 41 AND 60 THEN '41-60'
+          ELSE '61+'
+        END AS age_group,
+        COUNT(DISTINCT vi.visitor_id) AS count
+      FROM VISIT vi
+      JOIN VISITOR v ON vi.visitor_id = v.visitor_id
+      WHERE vi.visit_date BETWEEN ? AND ?
+      GROUP BY age_group
+      ORDER BY count DESC
+      `,
+      [from, to]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

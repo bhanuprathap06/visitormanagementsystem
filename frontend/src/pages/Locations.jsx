@@ -14,8 +14,38 @@ export default function Locations() {
   const [editing,setEditing]=useState(null);
   const [search,setSearch]=useState('');
 
-  const load=()=>{ setLoading(true); api.get('/locations').then(r=>setData(r.data.data||[])).catch(()=>toast.error('Failed to load locations')).finally(()=>setLoading(false)); };
+  // Daily capacity + pricing management
+  const [capDate,setCapDate]=useState(new Date().toISOString().slice(0,10));
+  const [capacity,setCapacity]=useState([]);
+  const [capLoading,setCapLoading]=useState(false);
+  const [pricingLoc,setPricingLoc]=useState('');
+  const [pricing,setPricing]=useState([]);
+  const [pricingLoading,setPricingLoading]=useState(false);
+
+  const load=()=>{ setLoading(true); api.get('/locations').then(r=>setData((r.data?.data ?? r.data)||[])).catch(()=>toast.error('Failed to load locations')).finally(()=>setLoading(false)); };
   useEffect(load,[]);
+
+  useEffect(()=>{
+    if(!capDate) return;
+    setCapLoading(true);
+    api.get('/locations/daily-capacity',{params:{visit_date:capDate}})
+      .then(r=>setCapacity((r.data?.data ?? r.data)||[]))
+      .catch(()=>toast.error('Failed to load daily capacity'))
+      .finally(()=>setCapLoading(false));
+  },[capDate]);
+
+  useEffect(()=>{
+    if(!pricingLoc && data?.[0]?.location_id) setPricingLoc(String(data[0].location_id));
+  },[data,pricingLoc]);
+
+  useEffect(()=>{
+    if(!pricingLoc) return;
+    setPricingLoading(true);
+    api.get('/locations/pricing-config',{params:{location_id:pricingLoc,visit_date:capDate}})
+      .then(r=>setPricing((r.data?.data ?? r.data)||[]))
+      .catch(()=>toast.error('Failed to load pricing config'))
+      .finally(()=>setPricingLoading(false));
+  },[pricingLoc,capDate]);
 
   const filtered=data.filter(l=>l.location_name.toLowerCase().includes(search.toLowerCase())||l.city.toLowerCase().includes(search.toLowerCase()));
   const open=(row=null)=>{ setEditing(row); setForm(row?{...row}:EMPTY); setModal(true); };
@@ -61,6 +91,145 @@ export default function Locations() {
           <span className="badge-gray">{filtered.length} total</span>
         </div>
         <DataTable columns={cols} data={filtered} loading={loading}/>
+      </div>
+
+      {/* Daily Capacity Management */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm">Ticket Availability</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Daily capacity vs booked tickets (public bookings sync instantly)</p>
+            </div>
+            <input type="date" className="input w-44" value={capDate} onChange={e=>setCapDate(e.target.value)}/>
+          </div>
+
+          {capLoading ? (
+            <div className="space-y-2">{Array.from({length:3}).map((_,i)=><div key={i} className="h-14 rounded-xl skeleton-shimmer"/>)}</div>
+          ) : (
+            <div className="space-y-2">
+              {capacity.map((c)=>(
+                <div key={c.location_id} className="flex flex-wrap items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50">
+                  <div className="flex-1 min-w-[220px]">
+                    <p className="font-semibold text-slate-800 text-sm">{c.location_name}</p>
+                    <p className="text-xs text-slate-400">{c.tickets_sold} sold · {c.remaining} remaining</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">Max/day</span>
+                    <input
+                      type="number"
+                      min="1"
+                      className="input w-28"
+                      value={c.max_tickets}
+                      onChange={e=>setCapacity(prev=>prev.map(x=>x.location_id===c.location_id?{...x,max_tickets:e.target.value}:x))}
+                    />
+                    <button
+                      onClick={async()=>{
+                        try{
+                          await api.put('/locations/daily-capacity',{location_id:c.location_id,visit_date:capDate,max_tickets:Number(c.max_tickets)});
+                          toast.success('Capacity saved');
+                          const r=await api.get('/locations/daily-capacity',{params:{visit_date:capDate}});
+                          setCapacity((r.data?.data ?? r.data)||[]);
+                        }catch(e){ toast.error(e.response?.data?.message||'Save failed'); }
+                      }}
+                      className="btn-primary text-xs py-2 px-3"
+                    >Save</button>
+                  </div>
+                </div>
+              ))}
+              {capacity.length===0 && <div className="text-sm text-slate-400 py-10 text-center">No locations found</div>}
+            </div>
+          )}
+        </div>
+
+        {/* Pricing Configuration */}
+        <div className="card">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm">Pricing Configuration</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Updates reflect immediately in the public booking site</p>
+            </div>
+            <select className="input w-64" value={pricingLoc} onChange={e=>setPricingLoc(e.target.value)}>
+              {data.filter(x=>x.is_active).map(l=><option key={l.location_id} value={l.location_id}>{l.location_name}</option>)}
+            </select>
+          </div>
+
+          {pricingLoading ? (
+            <div className="space-y-2">{Array.from({length:5}).map((_,i)=><div key={i} className="h-14 rounded-xl skeleton-shimmer"/>)}</div>
+          ) : (
+            <div className="space-y-2">
+              {['adult','child','student','senior_citizen','family'].map((cat)=>{
+                const row = pricing.find(p=>p.ticket_category===cat) || { ticket_category: cat, base_price: 0, discount_pct: 0 };
+                return (
+                  <div key={cat} className="grid grid-cols-12 gap-2 items-center p-3 rounded-xl border border-slate-100 bg-slate-50">
+                    <div className="col-span-4">
+                      <p className="font-semibold text-slate-800 text-sm capitalize">{cat.replace('_',' ')}</p>
+                      <p className="text-xs text-slate-400">Effective: {String(row.effective_from||capDate).slice(0,10)}</p>
+                    </div>
+                    <div className="col-span-4">
+                      <label className="text-xs text-slate-500">Base price (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="input mt-1"
+                        value={row.base_price}
+                        onChange={e=>{
+                          const v=e.target.value;
+                          setPricing(prev=>{
+                            const exists=prev.some(p=>p.ticket_category===cat);
+                            return exists
+                              ? prev.map(p=>p.ticket_category===cat?{...p,base_price:v}:p)
+                              : [...prev,{...row,base_price:v}];
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="text-xs text-slate-500">Discount %</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        className="input mt-1"
+                        value={row.discount_pct}
+                        onChange={e=>{
+                          const v=e.target.value;
+                          setPricing(prev=>{
+                            const exists=prev.some(p=>p.ticket_category===cat);
+                            return exists
+                              ? prev.map(p=>p.ticket_category===cat?{...p,discount_pct:v}:p)
+                              : [...prev,{...row,discount_pct:v}];
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-end">
+                      <button
+                        className="btn-primary text-xs py-2 px-3"
+                        onClick={async()=>{
+                          try{
+                            await api.put('/locations/pricing-config',{
+                              location_id:Number(pricingLoc),
+                              ticket_category:cat,
+                              base_price:Number(row.base_price||0),
+                              discount_pct:Number(row.discount_pct||0),
+                              effective_from:capDate,
+                            });
+                            toast.success('Pricing updated');
+                            const r=await api.get('/locations/pricing-config',{params:{location_id:pricingLoc,visit_date:capDate}});
+                            setPricing((r.data?.data ?? r.data)||[]);
+                          }catch(e){ toast.error(e.response?.data?.message||'Update failed'); }
+                        }}
+                      >Save</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       <Modal open={modal} onClose={close} title={editing?'Edit Location':'Add New Location'} size="lg">

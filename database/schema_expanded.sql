@@ -100,6 +100,36 @@ CREATE TABLE VISITOR (
 );
 
 -- ============================================================================
+-- TABLE 4A: VISITOR_ACCOUNT  (NEW)
+-- Public website login accounts (separate from VISITOR profile)
+-- ============================================================================
+CREATE TABLE VISITOR_ACCOUNT (
+    account_id     INT PRIMARY KEY AUTO_INCREMENT,
+    visitor_id     INT,  -- links to VISITOR if profile completed
+    email          VARCHAR(100) UNIQUE NOT NULL,
+    password_hash  VARCHAR(255) NOT NULL,
+    is_verified    BOOLEAN DEFAULT FALSE,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (visitor_id) REFERENCES VISITOR(visitor_id) ON DELETE SET NULL,
+    INDEX idx_va_email (email)
+);
+
+-- ============================================================================
+-- TABLE 4B: DAILY_CAPACITY  (NEW)
+-- Daily ticket capacity per location/date
+-- ============================================================================
+CREATE TABLE DAILY_CAPACITY (
+    capacity_id  INT PRIMARY KEY AUTO_INCREMENT,
+    location_id  INT NOT NULL,
+    visit_date   DATE NOT NULL,
+    max_tickets  INT NOT NULL,
+    tickets_sold INT DEFAULT 0,
+    UNIQUE KEY unique_location_date (location_id, visit_date),
+    FOREIGN KEY (location_id) REFERENCES LOCATION(location_id) ON DELETE CASCADE,
+    INDEX idx_dc_date (visit_date)
+);
+
+-- ============================================================================
 -- TABLE 6: PAYMENT
 -- ============================================================================
 CREATE TABLE PAYMENT (
@@ -288,6 +318,27 @@ CREATE TABLE AUDIT_LOG (
 );
 
 -- ============================================================================
+-- TABLE 15: EXHIBIT  (NEW)
+-- Animals / artifacts / plants displayed at a location. Powers the public
+-- Exhibit Explorer and Zoo Map pages.
+-- ============================================================================
+CREATE TABLE EXHIBIT (
+    exhibit_id    INT PRIMARY KEY AUTO_INCREMENT,
+    location_id   INT          NOT NULL,
+    name          VARCHAR(120) NOT NULL,
+    category      VARCHAR(60),
+    zone          VARCHAR(60),
+    description   TEXT,
+    fun_fact      TEXT,
+    image_url     VARCHAR(255),
+    is_active     BOOLEAN DEFAULT TRUE,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (location_id) REFERENCES LOCATION(location_id) ON DELETE CASCADE,
+    INDEX idx_exhibit_loc  (location_id),
+    INDEX idx_exhibit_zone (zone)
+);
+
+-- ============================================================================
 -- PERFORMANCE INDEXES
 -- ============================================================================
 CREATE INDEX idx_staff_type    ON STAFF(staff_type);
@@ -471,6 +522,20 @@ INSERT INTO INCIDENT_REPORT (location_id,reported_by_staff,incident_type,severit
 INSERT INTO ANNOUNCEMENT (location_id,title,message,priority,created_by,valid_from,valid_till) VALUES
 (1,'Weekend Special Discount','Enjoy 20% off on Family tickets every Saturday and Sunday!','normal',2,'2025-02-01 00:00:00','2025-12-31 23:59:59'),
 (NULL,'System Maintenance Notice','Ticket booking system will be down on Feb 15 from 2 AM to 4 AM.','high',7,'2025-02-14 00:00:00','2025-02-15 04:00:00');
+
+-- Exhibits (seed data)
+INSERT INTO EXHIBIT (location_id, name, category, zone, description, fun_fact) VALUES
+(1,'Bengal Tiger','Big Cats','Asia','The flagship predator of the park, housed in a large naturalistic enclosure with water features.','Tigers have striped skin, not just striped fur.'),
+(1,'Asian Elephant','Herbivores','Asia','Family group of Asian elephants with daily enrichment and training demos.','Elephants can recognise themselves in mirrors.'),
+(1,'Lion Savannah','Big Cats','Africa','Open savannah-style habitat for the pride, with scheduled feeding talks.','A lion''s roar can be heard up to 8 km away.'),
+(1,'Bird Aviary','Birds','Aviary','Walk-through aviary with dozens of South Asian species.','Some parrot species live for more than 50 years.'),
+(1,'Aquarium Reef','Aquatic','Aquarium','Tropical reef tank with corals, clownfish, and rays.','Clownfish are all born male and can change sex.'),
+(2,'Ancient Chola Sculptures','Artifacts','History Hall','Bronze and stone sculptures from the Chola dynasty (9th-13th century CE).','Some of these sculptures are over a thousand years old.'),
+(2,'Natural History Gallery','Specimens','Science Wing','Fossils, minerals, and taxidermy exhibits with interactive labels.','Trilobite fossils in the gallery are ~500 million years old.'),
+(2,'Penguin Cove','Special Exhibit','Aquarium','Cold-water exhibit featuring a colony of Humboldt penguins.','Penguins have excellent underwater vision.'),
+(3,'Orchid House','Plants','Greenhouse','Climate-controlled greenhouse displaying hundreds of orchid varieties.','Orchids can live for decades in the wild.'),
+(3,'Butterfly Walk','Insects','Meadow','Open-air butterfly meadow with native and migratory species.','Butterflies taste with their feet.'),
+(3,'Medicinal Plants Trail','Plants','Trail','Curated trail of traditional Indian medicinal plants.','Neem has been used medicinally for over 4000 years.');
 
 -- ============================================================================
 -- END OF SCRIPT

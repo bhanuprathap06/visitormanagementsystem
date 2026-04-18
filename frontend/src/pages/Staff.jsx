@@ -24,7 +24,7 @@ export default function Staff() {
     if(filter.type) q.set('staff_type',filter.type);
     if(filter.active) q.set('active',filter.active);
     Promise.all([api.get('/staff?'+q),api.get('/departments')])
-      .then(([s,d])=>{ setData(s.data.data||[]); setDepts(d.data.data||[]); })
+      .then(([s,d])=>{ setData((s.data?.data ?? s.data)||[]); setDepts((d.data?.data ?? d.data)||[]); })
       .catch(()=>toast.error('Failed to load staff'))
       .finally(()=>setLoading(false));
   };

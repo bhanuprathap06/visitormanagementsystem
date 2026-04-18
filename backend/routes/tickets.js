@@ -72,7 +72,15 @@ router.post('/', async (req, res, next) => {
       payment_mode, transaction_id, remarks
     } = req.body;
 
+    if (!visitor_id || !location_id || !ticket_category || !base_price || !valid_from || !valid_till || !payment_mode)
+      return res.status(400).json({ success: false, message: 'visitor_id, location_id, ticket_category, base_price, valid_from, valid_till and payment_mode are required' });
+    if (String(valid_from).slice(0, 10) > String(valid_till).slice(0, 10))
+      return res.status(400).json({ success: false, message: 'valid_till must be on or after valid_from' });
+
     const final_price  = parseFloat(base_price) - parseFloat(discount_amount);
+    if (final_price < 0)
+      return res.status(400).json({ success: false, message: 'Discount cannot exceed base price' });
+
     const ticket_qr    = `TKT_${location_id}_${Date.now()}`;
     const txnId        = transaction_id || `TXN-${Date.now()}`;
 
@@ -119,8 +127,8 @@ router.post('/checkin', async (req, res, next) => {
     if (ticket.ticket_status !== 'active') throw { status: 400, message: `Ticket is ${ticket.ticket_status}` };
 
     const today = new Date().toISOString().slice(0,10);
-    if (today < ticket.valid_from.toISOString?.()?.slice(0,10) ||
-        today > ticket.valid_till.toISOString?.()?.slice(0,10)) {
+    if (today < String(ticket.valid_from).slice(0,10) ||
+        today > String(ticket.valid_till).slice(0,10)) {
       throw { status: 400, message: 'Ticket not valid today' };
     }
 

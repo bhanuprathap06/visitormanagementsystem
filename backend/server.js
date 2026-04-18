@@ -9,7 +9,9 @@ const app = express();
 // ── CORS — allow any origin in production, localhost in dev ──────────────
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://localhost:4173',
+  'http://localhost:4174',
   /\.vercel\.app$/,         // any Vercel preview/production URL
   /\.railway\.app$/,        // Railway frontends
 ];
@@ -47,6 +49,7 @@ app.use('/api/reports',      require('./routes/reports'));
 app.use('/api/announcements',require('./routes/announcements'));
 app.use('/api/incidents',    require('./routes/incidents'));
 app.use('/api/feedback',     require('./routes/feedback'));
+app.use('/api/public',       require('./routes/public'));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));

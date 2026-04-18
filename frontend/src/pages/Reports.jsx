@@ -33,13 +33,42 @@ const StatBox = ({ label, value, sub, color='#6366f1', bg='#eef2ff' }) => (
   </div>
 );
 
-const tabs = ['Overview','Revenue','Visitors','Locations'];
+const tabs = ['Overview','Revenue','Visitors','Locations','Advanced'];
+
+const toCsv = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) return '';
+  const headers = Array.from(new Set(rows.flatMap(r => Object.keys(r))));
+  const esc = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    const needs = /[",\n]/.test(s);
+    const out = s.replaceAll('"', '""');
+    return needs ? `"${out}"` : out;
+  };
+  return [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))].join('\n');
+};
+
+const downloadCsv = (filename, rows) => {
+  const csv = toCsv(rows);
+  if (!csv) return toast.error('Nothing to export');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
 
 export default function Reports() {
   const [active, setActive]   = useState('Overview');
   const [revenue, setRevenue] = useState(null);
   const [visitors, setVisits] = useState(null);
   const [locSummary, setLoc]  = useState([]);
+  const [heatmap, setHeatmap] = useState(null);
+  const [revByCat, setRevByCat] = useState([]);
+  const [demo, setDemo] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,10 +77,16 @@ export default function Reports() {
       api.get('/reports/revenue').catch(() => ({ data: { data: {} } })),
       api.get('/reports/visitors').catch(() => ({ data: { data: {} } })),
       api.get('/reports/location-summary').catch(() => ({ data: { data: [] } })),
-    ]).then(([r, v, l]) => {
+      api.get('/reports/hourly-heatmap').catch(() => ({ data: { data: null } })),
+      api.get('/reports/revenue-by-category').catch(() => ({ data: { data: [] } })),
+      api.get('/reports/demographics').catch(() => ({ data: { data: [] } })),
+    ]).then(([r, v, l, h, rb, d]) => {
       setRevenue(r.data?.data ?? {});
       setVisits(v.data?.data ?? {});
       setLoc(Array.isArray(l.data?.data) ? l.data.data : []);
+      setHeatmap(h.data?.data ?? null);
+      setRevByCat(Array.isArray(rb.data?.data) ? rb.data.data : []);
+      setDemo(Array.isArray(d.data?.data) ? d.data.data : []);
     }).catch(() => toast.error('Failed to load reports'))
       .finally(() => setLoading(false));
   }, []);
@@ -66,6 +101,19 @@ export default function Reports() {
   const totalRev  = byLoc.reduce((s,r) => s + parseFloat(r.revenue||0), 0).toFixed(2);
   const totalTix  = byLoc.reduce((s,r) => s + (r.tickets||0), 0);
   const totalVis  = byGender.reduce((s,r) => s + (r.count||0), 0);
+
+  const heat = heatmap?.by_hour || [];
+  const maxH = Math.max(...heat.map(x=>x.count||0), 1);
+
+  const catKeys = Array.from(new Set(revByCat.map(r=>r.ticket_category))).sort();
+  const stacked = Array.from(
+    revByCat.reduce((m, r) => {
+      const date = r.date;
+      if (!m.has(date)) m.set(date, { date });
+      m.get(date)[r.ticket_category] = Number(r.revenue || 0);
+      return m;
+    }, new Map()).values()
+  );
 
   return (
     <div className="space-y-6">
@@ -290,6 +338,89 @@ export default function Reports() {
                 <p className="text-sm">No location data yet</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── ADVANCED ─────────────────────────────────────────────────────── */}
+      {!loading && active === 'Advanced' && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-slate-900">Advanced Analytics</h3>
+              <p className="text-slate-400 text-sm mt-0.5">Hourly heatmap, category revenue breakdown, demographics, and CSV exports</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={()=>downloadCsv('revenue_by_category.csv', revByCat)} className="btn-secondary text-xs py-2 px-3">Export Revenue CSV</button>
+              <button onClick={()=>downloadCsv('demographics.csv', demo)} className="btn-secondary text-xs py-2 px-3">Export Demographics CSV</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Heatmap */}
+            <div className="rounded-2xl p-6 bg-white border border-slate-100" style={{ boxShadow:'0 1px 20px rgba(0,0,0,0.06)' }}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-800">Hourly Visitor Heatmap</h3>
+                <span className="badge-indigo">{heatmap?.date || 'today'}</span>
+              </div>
+              <div className="grid grid-cols-6 gap-2">
+                {heat.map((h)=>(
+                  <div key={h.hour} className="rounded-xl border border-slate-200 p-2"
+                    style={{ background:`rgba(99,102,241,${0.08 + 0.42*(h.count/maxH)})` }}>
+                    <p className="text-[10px] text-slate-600 font-bold">{String(h.hour).padStart(2,'0')}:00</p>
+                    <p className="text-sm font-black text-slate-900">{h.count}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 mt-3">Counts are based on visit entry times (VISIT.entry_time).</p>
+            </div>
+
+            {/* Demographics */}
+            <div className="rounded-2xl p-6 bg-white border border-slate-100" style={{ boxShadow:'0 1px 20px rgba(0,0,0,0.06)' }}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-800">Visitor Demographics</h3>
+                <button onClick={()=>downloadCsv('demographics.csv', demo)} className="btn-secondary text-xs py-2 px-3">Export CSV</button>
+              </div>
+              {demo.length ? (
+                <ResponsiveContainer width="100%" height={260}>
+                  <PieChart>
+                    <Pie data={demo} dataKey="count" nameKey="age_group" innerRadius={55} outerRadius={90} paddingAngle={3}>
+                      {demo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
+                    </Pie>
+                    <Tooltip content={<Tip/>}/>
+                    <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:12,color:'#64748b'}}/>
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[260px] text-slate-300 text-5xl">🧑‍🤝‍🧑</div>
+              )}
+              <p className="text-xs text-slate-400 mt-3">Age groups are computed from VISITOR.date_of_birth.</p>
+            </div>
+          </div>
+
+          {/* Stacked revenue by category */}
+          <div className="rounded-2xl p-6 bg-white border border-slate-100" style={{ boxShadow:'0 1px 20px rgba(0,0,0,0.06)' }}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800">Revenue Breakdown by Ticket Category</h3>
+              <button onClick={()=>downloadCsv('revenue_by_category.csv', revByCat)} className="btn-secondary text-xs py-2 px-3">Export CSV</button>
+            </div>
+            {stacked.length ? (
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={stacked} barSize={18}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(226,232,240,0.6)" vertical={false}/>
+                  <XAxis dataKey="date" tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
+                  <YAxis tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
+                  <Tooltip content={<Tip/>}/>
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:12,color:'#64748b'}}/>
+                  {catKeys.slice(0,8).map((k,i)=>(
+                    <Bar key={k} dataKey={k} stackId="rev" name={k.replace('_',' ')} fill={COLORS[i%COLORS.length]} radius={i===catKeys.length-1?[8,8,0,0]:[0,0,0,0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[320px] text-slate-300 text-5xl">💰</div>
+            )}
+            <p className="text-xs text-slate-400 mt-3">Data source: TICKET grouped by date and category (excluding cancelled).</p>
           </div>
         </div>
       )}

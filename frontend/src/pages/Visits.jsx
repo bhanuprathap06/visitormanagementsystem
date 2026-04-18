@@ -16,7 +16,7 @@ export default function Visits() {
     const q=new URLSearchParams();
     Object.entries(filter).forEach(([k,v])=>{ if(v) q.set(k,v); });
     Promise.all([api.get('/visits?'+q),api.get('/locations')])
-      .then(([v,l])=>{ setData(v.data.data||[]); setLocations(l.data.data||[]); })
+      .then(([v,l])=>{ setData((v.data?.data ?? v.data)||[]); setLocations((l.data?.data ?? l.data)||[]); })
       .catch(()=>toast.error('Failed to load visits'))
       .finally(()=>setLoading(false));
   };

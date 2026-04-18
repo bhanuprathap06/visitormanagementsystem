@@ -118,4 +118,44 @@ router.get('/payment-modes', async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/dashboard/live-count
+// Used by admin polling + public live occupancy widgets
+router.get('/live-count', async (_req, res, next) => {
+  try {
+    const [[overall]] = await db.query(`
+      SELECT COUNT(*) AS current_inside
+      FROM VISIT
+      WHERE visit_status='in_progress' AND visit_date=CURDATE()
+    `);
+
+    const [byLocation] = await db.query(`
+      SELECT l.location_id, l.location_name, l.capacity,
+             COUNT(vi.visit_id) AS current_inside
+      FROM LOCATION l
+      LEFT JOIN VISIT vi
+        ON vi.location_id=l.location_id
+       AND vi.visit_status='in_progress'
+       AND vi.visit_date=CURDATE()
+      WHERE l.is_active=1
+      GROUP BY l.location_id
+      ORDER BY l.location_id ASC
+    `);
+
+    const payload = byLocation.map((r) => ({
+      location_id: r.location_id,
+      location_name: r.location_name,
+      capacity: Number(r.capacity),
+      current_inside: Number(r.current_inside || 0),
+      occupancy_pct: r.capacity ? Math.round((Number(r.current_inside || 0) / Number(r.capacity)) * 100) : 0,
+    }));
+
+    res.json({
+      success: true,
+      data: { current_inside: Number(overall?.current_inside || 0), by_location: payload },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

@@ -6,7 +6,7 @@
 DBMS (frontend and backend)/
 ├── database/
 │   └── schema_expanded.sql     ← Run this in MySQL first
-├── backend/                    ← Node.js + Express API (port 5000)
+├── backend/                    ← Node.js + Express API (port 3001)
 │   ├── server.js
 │   ├── .env.example            ← Copy to .env and fill in your DB details
 │   ├── config/database.js
@@ -76,7 +76,7 @@ DB_USER=root
 DB_PASSWORD=your_mysql_root_password
 DB_NAME=visitor_management_system
 
-PORT=5000
+PORT=3001
 JWT_SECRET=any_long_random_string_here
 ```
 
@@ -87,8 +87,8 @@ npm run dev       # development (auto-restarts on changes)
 npm start         # production
 ```
 
-Backend runs at: **http://localhost:5000**
-Test it: http://localhost:5000/api/health
+Backend runs at: **http://localhost:3001**
+Test it: http://localhost:3001/api/health
 
 ---
 
@@ -107,7 +107,7 @@ npm run dev
 
 Frontend runs at: **http://localhost:5173**
 
-The frontend automatically proxies `/api/*` calls to the backend at port 5000.
+The frontend automatically proxies `/api/*` calls to the backend at port 3001.
 
 ---
 
